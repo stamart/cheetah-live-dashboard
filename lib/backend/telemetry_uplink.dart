@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../gt7/gt7_telemetry.dart';
@@ -25,6 +26,8 @@ class TelemetryUplink {
   Gt7Telemetry? _latest;
   Timer? _timer;
   bool _inFlight = false;
+  int _sent = 0;
+  int _failed = 0;
 
   void update(Gt7Telemetry telemetry) {
     _latest = telemetry;
@@ -56,16 +59,34 @@ class TelemetryUplink {
               'speedKph': telemetry.speedKph,
               'rpm': telemetry.rpm.round(),
               'currentLap': telemetry.currentLap,
+              'totalLaps': telemetry.totalLaps,
               'lastLapTimeMs': telemetry.lastLapTimeMs,
               'bestLapTimeMs': telemetry.bestLapTimeMs,
               'fuelPct': telemetry.fuelPct,
               'throttle': telemetry.throttlePct,
               'brake': telemetry.brakePct,
+              'tireTempFL': telemetry.tireTempFL,
+              'tireTempFR': telemetry.tireTempFR,
+              'tireTempRL': telemetry.tireTempRL,
+              'tireTempRR': telemetry.tireTempRR,
+              'positionX': telemetry.positionX,
+              'positionZ': telemetry.positionZ,
             }),
           )
           .timeout(const Duration(seconds: 5));
-      onResult?.call(response.statusCode == 204, response.statusCode == 204 ? null : response.body);
+      final ok = response.statusCode == 204;
+      if (ok) {
+        _sent++;
+      } else {
+        _failed++;
+      }
+      if (!ok || _sent <= 3 || _sent % 60 == 0) {
+        debugPrint('[uplink] ingest ${ok ? 'ok' : 'FAILED (${response.statusCode})'} — sent=$_sent failed=$_failed');
+      }
+      onResult?.call(ok, ok ? null : response.body);
     } catch (e) {
+      _failed++;
+      debugPrint('[uplink] ingest error (#$_failed): $e');
       onResult?.call(false, e.toString());
     } finally {
       _inFlight = false;

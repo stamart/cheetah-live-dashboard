@@ -55,23 +55,39 @@ Gt7Telemetry? parseGt7Packet(Uint8List d) {
   final fuelLevel = bd.getFloat32(0x44, Endian.little);
   final fuelCapacity = bd.getFloat32(0x48, Endian.little);
   final currentLap = bd.getInt16(0x74, Endian.little);
+  final totalLaps = bd.getInt16(0x76, Endian.little);
   final bestLapMs = bd.getInt32(0x78, Endian.little);
   final lastLapMs = bd.getInt32(0x7C, Endian.little);
   final throttleRaw = d[0x91];
   final brakeRaw = d[0x92];
   final flags = d[0x8E];
+  final tireTempFL = bd.getFloat32(0x60, Endian.little);
+  final tireTempFR = bd.getFloat32(0x64, Endian.little);
+  final tireTempRL = bd.getFloat32(0x68, Endian.little);
+  final tireTempRR = bd.getFloat32(0x6C, Endian.little);
+  final positionX = bd.getFloat32(0x04, Endian.little);
+  final positionY = bd.getFloat32(0x08, Endian.little);
+  final positionZ = bd.getFloat32(0x0C, Endian.little);
 
   return Gt7Telemetry(
     speedKph: speedMs * 3.6,
     rpm: rpm,
     currentLap: currentLap,
+    totalLaps: totalLaps > 0 ? totalLaps : 0,
     // -1 (0xFFFFFFFF) means "no time recorded yet" in GT7's packet.
     lastLapTimeMs: lastLapMs > 0 ? lastLapMs : null,
     bestLapTimeMs: bestLapMs > 0 ? bestLapMs : null,
     fuelPct: fuelCapacity > 0 ? (fuelLevel / fuelCapacity * 100).clamp(0, 100) : null,
     throttlePct: (throttleRaw / 2.55).clamp(0, 100),
     brakePct: (brakeRaw / 2.55).clamp(0, 100),
+    tireTempFL: tireTempFL,
+    tireTempFR: tireTempFR,
+    tireTempRL: tireTempRL,
+    tireTempRR: tireTempRR,
     inRace: (flags & 0x01) != 0,
     isPaused: (flags & 0x02) != 0,
+    positionX: positionX,
+    positionY: positionY,
+    positionZ: positionZ,
   );
 }

@@ -5,6 +5,7 @@ class Gt7Telemetry {
   final double speedKph;
   final double rpm;
   final int currentLap;
+  final int totalLaps;
   final int? lastLapTimeMs;
   final int? bestLapTimeMs;
   final double? fuelPct;
@@ -12,11 +13,22 @@ class Gt7Telemetry {
   final double brakePct;
   final bool inRace;
   final bool isPaused;
+  final double tireTempFL;
+  final double tireTempFR;
+  final double tireTempRL;
+  final double tireTempRR;
+  // Raw world-space position (own car only). No rotation/scale calibration from GT7 —
+  // only useful for plotting a track's shape from the accumulated path, not as
+  // real-world coordinates. Y is vertical height, not used for a top-down map.
+  final double positionX;
+  final double positionY;
+  final double positionZ;
 
   const Gt7Telemetry({
     required this.speedKph,
     required this.rpm,
     required this.currentLap,
+    required this.totalLaps,
     required this.lastLapTimeMs,
     required this.bestLapTimeMs,
     required this.fuelPct,
@@ -24,5 +36,12 @@ class Gt7Telemetry {
     required this.brakePct,
     required this.inRace,
     required this.isPaused,
+    required this.tireTempFL,
+    required this.tireTempFR,
+    required this.tireTempRL,
+    required this.tireTempRR,
+    required this.positionX,
+    required this.positionY,
+    required this.positionZ,
   });
 }

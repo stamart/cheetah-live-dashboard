@@ -4,8 +4,10 @@ import 'package:http/http.dart' as http;
 
 class PairingResult {
   final String ingestToken;
-  final int eventId;
-  final String eventName;
+  // Null for an ad-hoc session not tied to any league event (see backend
+  // domain/livetiming — event assignment is optional).
+  final int? eventId;
+  final String? eventName;
   final int driverId;
   final String driverName;
 
@@ -19,8 +21,8 @@ class PairingResult {
 
   factory PairingResult.fromJson(Map<String, dynamic> json) => PairingResult(
         ingestToken: json['ingestToken'] as String,
-        eventId: json['eventId'] as int,
-        eventName: json['eventName'] as String,
+        eventId: json['eventId'] as int?,
+        eventName: json['eventName'] as String?,
         driverId: json['driverId'] as int,
         driverName: json['driverName'] as String,
       );

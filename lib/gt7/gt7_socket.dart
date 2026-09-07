@@ -1,18 +1,24 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 import 'gt7_packet_decoder.dart';
 import 'gt7_telemetry.dart';
 
 /// Sends the GT7 heartbeat and decodes incoming telemetry over UDP. GT7 stops
 /// sending packets if the heartbeat lapses, so it's resent periodically, not
-/// just once. The PS5 replies to whatever local port this socket is bound
-/// to (not to a fixed port on the phone), so telemetry is read from the same
-/// socket the heartbeat was sent from.
+/// just once. The PS5 always streams telemetry to local port 33740 on the
+/// client — NOT to whatever ephemeral source port the heartbeat happened to
+/// come from — so the receiving socket must be explicitly bound there (this
+/// matches every reference implementation, e.g. snipem/gt7dashboard's
+/// `s.bind(('0.0.0.0', 33740))`). Binding to an ephemeral port instead sends
+/// heartbeats fine but never receives anything back.
 class Gt7Socket {
   Gt7Socket(this.ps5Ip);
 
   static const _heartbeatPort = 33739;
+  static const _telemetryPort = 33740;
   static const _heartbeatInterval = Duration(seconds: 1);
   static const _badPacketDisconnectThreshold = 30;
 
@@ -24,6 +30,11 @@ class Gt7Socket {
   int _consecutiveBadPackets = 0;
   bool _connected = false;
 
+  // Diagnostics-only counters — logged sparingly so a real session (60Hz once
+  // GT7 is talking) doesn't flood logcat.
+  int _rawDatagramsReceived = 0;
+  int _decryptFailures = 0;
+
   final _telemetryController = StreamController<Gt7Telemetry>.broadcast();
   final _connectionController = StreamController<bool>.broadcast();
 
@@ -32,7 +43,8 @@ class Gt7Socket {
   bool get connected => _connected;
 
   Future<void> start() async {
-    _socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+    _socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, _telemetryPort);
+    debugPrint('[GT7] UDP socket bound on local port ${_socket!.port}, heartbeat target $ps5Ip:$_heartbeatPort');
     _subscription = _socket!.listen(_onEvent);
     _sendHeartbeat();
     _heartbeatTimer = Timer.periodic(_heartbeatInterval, (_) => _sendHeartbeat());
@@ -40,10 +52,10 @@ class Gt7Socket {
 
   void _sendHeartbeat() {
     try {
-      _socket?.send(const [0x41], InternetAddress(ps5Ip), _heartbeatPort); // 'A'
-    } catch (_) {
-      // Bad IP / unreachable host — surfaced via connectionStatus staying false,
-      // no need to crash the uplink loop over a single failed send.
+      final sent = _socket?.send(const [0x41], InternetAddress(ps5Ip), _heartbeatPort); // 'A'
+      debugPrint('[GT7] heartbeat -> $ps5Ip:$_heartbeatPort (sent=$sent bytes, packetsIn=$_rawDatagramsReceived, decryptFail=$_decryptFailures)');
+    } catch (e) {
+      debugPrint('[GT7] heartbeat send failed: $e');
     }
   }
 
@@ -52,10 +64,20 @@ class Gt7Socket {
     final datagram = _socket?.receive();
     if (datagram == null) return;
 
+    _rawDatagramsReceived++;
+    if (_rawDatagramsReceived <= 3) {
+      debugPrint('[GT7] raw datagram #$_rawDatagramsReceived from ${datagram.address.address}:${datagram.port}, ${datagram.data.length} bytes');
+    }
+
     final decrypted = decryptGt7Packet(datagram.data);
     if (decrypted == null) {
+      _decryptFailures++;
+      if (_decryptFailures <= 3 || _decryptFailures % 60 == 0) {
+        debugPrint('[GT7] decrypt/magic check failed (#$_decryptFailures) on a ${datagram.data.length}-byte packet');
+      }
       _consecutiveBadPackets++;
       if (_connected && _consecutiveBadPackets > _badPacketDisconnectThreshold) {
+        debugPrint('[GT7] too many bad packets in a row, marking disconnected');
         _connected = false;
         _connectionController.add(false);
       }
@@ -64,6 +86,7 @@ class Gt7Socket {
 
     _consecutiveBadPackets = 0;
     if (!_connected) {
+      debugPrint('[GT7] first valid packet decrypted — connected');
       _connected = true;
       _connectionController.add(true);
     }

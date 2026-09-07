@@ -155,9 +155,7 @@ class _HudScreenState extends State<HudScreen> {
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(16),
-          child: _state == _SessionState.live && _latestTelemetry != null
-              ? _buildHud()
-              : _buildSetup(),
+          child: _state == _SessionState.live ? _buildLive() : _buildSetup(),
         ),
       ),
     );
@@ -170,7 +168,7 @@ class _HudScreenState extends State<HudScreen> {
           controller: _ps5IpController,
           decoration: const InputDecoration(
             labelText: 'Adres IP PS5 (ta sama sieć Wi-Fi)',
-            hintText: '192.168.1.50',
+            hintText: '192.168.1.150',
           ),
           keyboardType: TextInputType.number,
         ),
@@ -204,18 +202,23 @@ class _HudScreenState extends State<HudScreen> {
     );
   }
 
-  Widget _buildHud() {
-    final t = _latestTelemetry!;
+  /// Live session shell — always shown once pairing succeeds, regardless of
+  /// whether GT7 has sent its first packet yet. Without this, a paired-but-
+  /// no-telemetry-yet session looked identical to the initial unconnected
+  /// setup screen, with no indication anything had happened.
+  Widget _buildLive() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(_session?.eventName ?? '', style: Theme.of(context).textTheme.titleMedium),
+            Text(_session?.eventName ?? 'Sesja wolna (bez eventu)', style: Theme.of(context).textTheme.titleMedium),
             TextButton(onPressed: _disconnect, child: const Text('Rozłącz')),
           ],
         ),
+        Text('Kierowca: ${_session?.driverName ?? '—'}', style: const TextStyle(color: Colors.grey)),
+        const SizedBox(height: 8),
         Row(
           children: [
             _statusDot(_ps5Connected, 'PS5'),
@@ -225,7 +228,39 @@ class _HudScreenState extends State<HudScreen> {
         ),
         const SizedBox(height: 24),
         Expanded(
-          child: Center(
+          child: _latestTelemetry == null ? _buildWaitingForTelemetry() : _buildHud(_latestTelemetry!),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildWaitingForTelemetry() {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const CircularProgressIndicator(),
+          const SizedBox(height: 16),
+          Text(
+            _ps5Connected ? 'Sparowano — czekam na dane z GT7...' : 'Sparowano z serwerem — łączę z PS5 pod $_ps5IpForDisplay...',
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Upewnij się, że GT7 jest uruchomione (nie tylko konsola) i telefon jest\n'
+            'w tej samej sieci Wi-Fi co PS5.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.grey, fontSize: 13),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String get _ps5IpForDisplay => _ps5IpController.text.trim();
+
+  Widget _buildHud(Gt7Telemetry t) {
+    return Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -247,10 +282,7 @@ class _HudScreenState extends State<HudScreen> {
                 ],
               ],
             ),
-          ),
-        ),
-      ],
-    );
+          );
   }
 
   Widget _statusDot(bool ok, String label) {
