@@ -151,7 +151,7 @@ class _HudScreenState extends State<HudScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Cheetah Live Dashboard')),
+      appBar: AppBar(title: const Text('Cheetah Live')),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(16),
