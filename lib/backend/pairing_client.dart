@@ -1,7 +1,6 @@
-import 'dart:convert';
-
-import 'package:http/http.dart' as http;
-
+/// Response shape shared by every way of starting a live-timing session — today just
+/// AppSessionClient.startSession (Discord login, see app_session_client.dart). Kept in its own
+/// file since it's a plain data model with no dependency on how the session was started.
 class PairingResult {
   final String ingestToken;
   // Null for an ad-hoc session not tied to any league event (see backend
@@ -33,40 +32,4 @@ class PairingException implements Exception {
   PairingException(this.message);
   @override
   String toString() => message;
-}
-
-/// Exchanges a short-lived pairing code (issued from the PANEL) for an ingest
-/// token scoped to one live-timing session — see backend domain/livetiming.
-class PairingClient {
-  final String backendBaseUrl;
-  PairingClient(this.backendBaseUrl);
-
-  Future<PairingResult> exchange(String pairingCode) async {
-    final uri = Uri.parse('$backendBaseUrl/api/livetiming/sessions/exchange');
-    final http.Response response;
-    try {
-      response = await http
-          .post(
-            uri,
-            headers: const {'Content-Type': 'application/json'},
-            body: jsonEncode({'pairingCode': pairingCode.trim()}),
-          )
-          .timeout(const Duration(seconds: 10));
-    } catch (e) {
-      throw PairingException('Nie można połączyć z serwerem ($backendBaseUrl): $e');
-    }
-
-    if (response.statusCode != 200) {
-      String message = 'Parowanie nie powiodło się (${response.statusCode})';
-      try {
-        final body = jsonDecode(response.body) as Map<String, dynamic>;
-        if (body['message'] != null) message = body['message'] as String;
-      } catch (_) {
-        // Non-JSON error body — keep the generic message above.
-      }
-      throw PairingException(message);
-    }
-
-    return PairingResult.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
-  }
 }

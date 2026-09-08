@@ -61,6 +61,9 @@ Gt7Telemetry? parseGt7Packet(Uint8List d) {
   final throttleRaw = d[0x91];
   final brakeRaw = d[0x92];
   final flags = d[0x8E];
+  final gear = d[0x90] & 0x0F; // low nibble = current gear; high nibble (unused here) = suggested gear
+  final minAlertRpm = bd.getInt16(0x88, Endian.little).toDouble();
+  final maxAlertRpm = bd.getInt16(0x8A, Endian.little).toDouble();
   final tireTempFL = bd.getFloat32(0x60, Endian.little);
   final tireTempFR = bd.getFloat32(0x64, Endian.little);
   final tireTempRL = bd.getFloat32(0x68, Endian.little);
@@ -72,6 +75,9 @@ Gt7Telemetry? parseGt7Packet(Uint8List d) {
   return Gt7Telemetry(
     speedKph: speedMs * 3.6,
     rpm: rpm,
+    gear: gear,
+    minAlertRpm: minAlertRpm,
+    maxAlertRpm: maxAlertRpm,
     currentLap: currentLap,
     totalLaps: totalLaps > 0 ? totalLaps : 0,
     // -1 (0xFFFFFFFF) means "no time recorded yet" in GT7's packet.

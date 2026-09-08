@@ -29,6 +29,22 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- flutter_web_auth_2: catches the cheetahlive://auth redirect after Discord login in
+             the system browser and hands it back to the Dart side. taskAffinity="" must match
+             MainActivity's — without it, Android treats this as a separate task from the app's,
+             so finishing it after the redirect reveals the browser task instead of returning to
+             the app (the app IS logged in at that point, the window just doesn't come forward). -->
+        <activity
+            android:name="com.linusu.flutter_web_auth_2.CallbackActivity"
+            android:taskAffinity=""
+            android:exported="true">
+            <intent-filter android:label="cheetah_live_dashboard">
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="cheetahlive"/>
+            </intent-filter>
+        </activity>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data
@@ -44,6 +60,12 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- flutter_web_auth_2 needs to resolve a browser to open Discord's login screen. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <category android:name="android.intent.category.BROWSABLE"/>
+            <data android:scheme="https"/>
         </intent>
     </queries>
 </manifest>

@@ -4,6 +4,13 @@
 class Gt7Telemetry {
   final double speedKph;
   final double rpm;
+  /// Raw gear nibble from the packet: 0 = neutral, 1-8 = forward gears, 15 = reverse
+  /// (standard GT convention — not yet cross-checked against a real reverse-gear capture).
+  final int gear;
+  /// Rev-limiter alert thresholds GT7 reports for the current car — these are what the
+  /// RPM gauge's colored zones scale against, not a fixed 0-6-8-10 layout.
+  final double minAlertRpm;
+  final double maxAlertRpm;
   final int currentLap;
   final int totalLaps;
   final int? lastLapTimeMs;
@@ -27,6 +34,9 @@ class Gt7Telemetry {
   const Gt7Telemetry({
     required this.speedKph,
     required this.rpm,
+    required this.gear,
+    required this.minAlertRpm,
+    required this.maxAlertRpm,
     required this.currentLap,
     required this.totalLaps,
     required this.lastLapTimeMs,
