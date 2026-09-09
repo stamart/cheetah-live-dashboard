@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -309,19 +310,21 @@ class _HudScreenState extends State<HudScreen> {
           ),
           keyboardType: TextInputType.number,
         ),
-        const SizedBox(height: 12),
-        DropdownButtonFormField<String>(
-          initialValue: _backendUrl,
-          decoration: const InputDecoration(labelText: 'Adres serwera Cheetah'),
-          items: _kBackendServers
-              .map((s) => DropdownMenuItem(value: s.url, child: Text('${s.label} — ${s.url}')))
-              .toList(),
-          onChanged: (value) {
-            if (value == null) return;
-            setState(() => _backendUrl = value);
-            _savePrefs();
-          },
-        ),
+        if (kDebugMode) ...[
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            initialValue: _backendUrl,
+            decoration: const InputDecoration(labelText: 'Adres serwera Cheetah'),
+            items: _kBackendServers
+                .map((s) => DropdownMenuItem(value: s.url, child: Text('${s.label} — ${s.url}')))
+                .toList(),
+            onChanged: (value) {
+              if (value == null) return;
+              setState(() => _backendUrl = value);
+              _savePrefs();
+            },
+          ),
+        ],
         const SizedBox(height: 20),
         if (_errorMessage != null)
           Padding(
