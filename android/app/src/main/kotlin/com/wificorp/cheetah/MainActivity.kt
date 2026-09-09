@@ -1,4 +1,4 @@
-package com.sooftail.cheetah_live_dashboard
+package com.wificorp.cheetah
 
 import io.flutter.embedding.android.FlutterActivity
 
