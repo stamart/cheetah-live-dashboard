@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:math';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
 import 'package:http/http.dart' as http;
 
@@ -61,6 +62,8 @@ class DiscordAuthClient {
         url: authorizeUrl.toString(),
         callbackUrlScheme: _callbackUrlScheme,
       );
+    } on PlatformException catch (e) {
+      throw DiscordAuthException(_describeAuthFailure(e));
     } catch (e) {
       throw DiscordAuthException('Logowanie przez Discord przerwane lub nieudane: $e');
     }
@@ -109,6 +112,31 @@ class DiscordAuthClient {
       driverId: json['driverId'] as int,
       driverName: json['driverName'] as String,
     );
+  }
+
+  /// flutter_web_auth_2 (Android AuthTabIntent) reports several distinct native error codes —
+  /// "CANCELED" in particular does NOT necessarily mean the driver deliberately backed out. It
+  /// fires any time the auth tab closes without a successful redirect, which on a fresh device
+  /// commonly happens because: Chrome's own first-run screen (ToS/sign-in) appeared instead of
+  /// Discord's page and got dismissed, or the phone's Wi-Fi network has no real internet route
+  /// (e.g. it only reaches the PS5, no SIM for cellular data) so Discord's page never loaded.
+  String _describeAuthFailure(PlatformException e) {
+    switch (e.code) {
+      case 'CANCELED':
+        return 'Logowanie przerwane przed dokończeniem. Sprawdź, czy telefon ma dostęp do '
+            'internetu (nie tylko do PS5 — bez karty SIM potrzebne jest Wi-Fi z realnym '
+            'dostępem do sieci) i czy w przeglądarce faktycznie wczytała się strona Discorda '
+            '(na nowym telefonie Chrome czasem najpierw pokazuje własny ekran powitalny), '
+            'potem spróbuj ponownie.';
+      case 'NO_BROWSER':
+        return 'Nie znaleziono przeglądarki do zalogowania na tym telefonie. Zainstaluj lub '
+            'ustaw domyślną przeglądarkę (np. Chrome) i spróbuj ponownie.';
+      case 'SECURITY_EXCEPTION':
+        return 'Wybrana przeglądarka nie mogła zostać użyta do logowania. Spróbuj ustawić inną '
+            'przeglądarkę jako domyślną i spróbuj ponownie.';
+      default:
+        return 'Logowanie przez Discord przerwane lub nieudane: ${e.code} — ${e.message ?? e}';
+    }
   }
 
   String _generateCodeVerifier() {
