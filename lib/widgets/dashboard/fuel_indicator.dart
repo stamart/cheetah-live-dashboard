@@ -2,14 +2,18 @@ import 'package:flutter/material.dart';
 
 import '../../theme/app_colors.dart';
 
-/// Fuel pump icon + percentage. Pulses red when fuel drops below 10% — null (not yet
-/// reported by GT7, e.g. before the first packet) shows a plain dash, no blinking.
+/// Fuel pump icon + percentage, shown inside the RPM gauge. Color signals urgency: white
+/// when there's plenty, yellow under 40%, red under 20%, pulsing red under 5%. Null (not
+/// yet reported by GT7, e.g. before the first packet) shows a plain dash, no color/pulse.
 class FuelIndicator extends StatefulWidget {
   final double? fuelPct;
 
   const FuelIndicator({super.key, required this.fuelPct});
 
-  static const double lowFuelThreshold = 10;
+  // Same thresholds as FuelBar, so the icon+percentage and the bar always agree.
+  static const double warnThreshold = 30;
+  static const double dangerThreshold = 15;
+  static const double pulseThreshold = 5;
 
   @override
   State<FuelIndicator> createState() => _FuelIndicatorState();
@@ -21,7 +25,7 @@ class _FuelIndicatorState extends State<FuelIndicator> with SingleTickerProvider
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 600))..repeat(reverse: true);
+    _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 1000))..repeat(reverse: true);
   }
 
   @override
@@ -30,15 +34,23 @@ class _FuelIndicatorState extends State<FuelIndicator> with SingleTickerProvider
     super.dispose();
   }
 
-  bool get _isLow => (widget.fuelPct ?? 100) < FuelIndicator.lowFuelThreshold;
+  bool get _isPulsing => (widget.fuelPct ?? 100) < FuelIndicator.pulseThreshold;
+
+  Color get _color {
+    final pct = widget.fuelPct;
+    if (pct == null) return AppColors.textWhite;
+    if (pct < FuelIndicator.dangerThreshold) return AppColors.accentRed;
+    if (pct < FuelIndicator.warnThreshold) return AppColors.accentYellow;
+    return AppColors.textWhite;
+  }
 
   @override
   Widget build(BuildContext context) {
     final pct = widget.fuelPct;
     final text = pct != null ? '${pct.round()}%' : '—';
 
-    if (!_isLow) {
-      return _FuelContent(color: AppColors.textWhite, opacity: 1, text: text);
+    if (!_isPulsing) {
+      return _FuelContent(color: _color, opacity: 1, text: text);
     }
 
     return AnimatedBuilder(
@@ -67,13 +79,13 @@ class _FuelContent extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.baseline,
         textBaseline: TextBaseline.alphabetic,
         children: [
-          Icon(Icons.local_gas_station, color: color, size: 20),
-          const SizedBox(width: 4),
+          Icon(Icons.local_gas_station, color: color, size: 28),
+          const SizedBox(width: 6),
           Text(
             text,
             style: TextStyle(
               color: color,
-              fontSize: 22,
+              fontSize: 32,
               fontWeight: FontWeight.w700,
               fontFeatures: const [FontFeature.tabularFigures()],
             ),

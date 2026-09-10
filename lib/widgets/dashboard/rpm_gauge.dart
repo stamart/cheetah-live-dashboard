@@ -5,15 +5,13 @@ import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
 import 'fuel_indicator.dart';
 
-/// Tachometer with alert zones that scale to the current car — nothing is hardcoded to a
-/// 0-6-8-10 layout. Zone boundaries (and the numeric ticks) are always computed as a
-/// fraction of [maxRpm], so a 7000rpm-limiter car and a 9000rpm-limiter car both draw
-/// correctly, and the gauge redraws itself if the car (and therefore [minAlertRpm] /
-/// [maxAlertRpm]) changes mid-session.
-///
-/// Convention: RPM values are raw (e.g. 7820), but the arc's numeric ticks are labelled in
-/// thousands (0..maxRpm/1000) like a real tachometer — matches the reference design.
-class RpmGauge extends StatelessWidget {
+/// Tachometer drawn as a fill/progress arc, not a needle: the unfilled part of the arc is
+/// a dark track, and the filled part (0 -> currentRpm) is colored yellow up to 90% of
+/// [maxRpm], red from 90-95%, and blinking red above 95% — a fixed proportion of max RPM,
+/// not the car's own alert thresholds, so it reads the same way in every car.
+/// No numeric labels on the scale — just tick marks — so it reads as a pure proportion of
+/// max RPM at a glance from a distance, independent of the car's actual redline number.
+class RpmGauge extends StatefulWidget {
   final double currentRpm;
   final double maxRpm;
   final double minAlertRpm;
@@ -21,6 +19,7 @@ class RpmGauge extends StatelessWidget {
   final int gear;
   final double speedKmh;
   final double? fuelPct;
+  final bool showRpmValue;
 
   const RpmGauge({
     super.key,
@@ -31,7 +30,30 @@ class RpmGauge extends StatelessWidget {
     required this.gear,
     required this.speedKmh,
     this.fuelPct,
+    this.showRpmValue = true,
   });
+
+  static const double redThreshold = 0.90;
+  static const double blinkThreshold = 0.95;
+
+  @override
+  State<RpmGauge> createState() => _RpmGaugeState();
+}
+
+class _RpmGaugeState extends State<RpmGauge> with SingleTickerProviderStateMixin {
+  late final AnimationController _blinkController;
+
+  @override
+  void initState() {
+    super.initState();
+    _blinkController = AnimationController(vsync: this, duration: const Duration(milliseconds: 250))..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _blinkController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -40,28 +62,38 @@ class RpmGauge extends StatelessWidget {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final size = math.min(constraints.maxWidth, constraints.maxHeight);
-          return Stack(
-            alignment: Alignment.center,
-            children: [
-              Positioned.fill(
-                child: CustomPaint(
-                  painter: _RpmGaugePainter(
-                    currentRpm: currentRpm,
-                    maxRpm: maxRpm,
-                    minAlertRpm: minAlertRpm,
-                    maxAlertRpm: maxAlertRpm,
+          return AnimatedBuilder(
+            animation: _blinkController,
+            builder: (context, _) {
+              return Stack(
+                alignment: Alignment.center,
+                children: [
+                  Positioned.fill(
+                    child: CustomPaint(
+                      painter: _RpmGaugePainter(
+                        currentRpm: widget.currentRpm,
+                        maxRpm: widget.maxRpm,
+                        blinkOpacity: 0.3 + 0.7 * _blinkController.value,
+                      ),
+                    ),
                   ),
-                ),
-              ),
-              SizedBox(
-                width: size * 0.64,
-                height: size * 0.64,
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: _GaugeReadout(gear: gear, speedKmh: speedKmh, currentRpm: currentRpm, fuelPct: fuelPct),
-                ),
-              ),
-            ],
+                  SizedBox(
+                    width: size * 0.7,
+                    height: size * 0.7,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: _GaugeReadout(
+                        gear: widget.gear,
+                        speedKmh: widget.speedKmh,
+                        currentRpm: widget.currentRpm,
+                        fuelPct: widget.fuelPct,
+                        showRpmValue: widget.showRpmValue,
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
           );
         },
       ),
@@ -74,8 +106,15 @@ class _GaugeReadout extends StatelessWidget {
   final double speedKmh;
   final double currentRpm;
   final double? fuelPct;
+  final bool showRpmValue;
 
-  const _GaugeReadout({required this.gear, required this.speedKmh, required this.currentRpm, this.fuelPct});
+  const _GaugeReadout({
+    required this.gear,
+    required this.speedKmh,
+    required this.currentRpm,
+    this.fuelPct,
+    this.showRpmValue = true,
+  });
 
   /// 0 = neutral, 15 = reverse (standard GT convention) — otherwise the raw gear number.
   String get _gearLabel {
@@ -114,29 +153,31 @@ class _GaugeReadout extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             const Text('km/h', style: TextStyle(color: AppColors.textMuted, fontSize: 18, fontWeight: FontWeight.w600)),
-          ],
-        ),
-        const SizedBox(height: 4),
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.baseline,
-          textBaseline: TextBaseline.alphabetic,
-          children: [
-            Text(
-              currentRpm.round().toString(),
-              style: const TextStyle(
-                color: AppColors.textWhite,
-                fontSize: 22,
-                fontWeight: FontWeight.w700,
-                fontFeatures: [FontFeature.tabularFigures()],
-              ),
-            ),
-            const SizedBox(width: 6),
-            const Text('RPM', style: TextStyle(color: AppColors.textMuted, fontSize: 14, fontWeight: FontWeight.w600)),
             const SizedBox(width: 18),
             FuelIndicator(fuelPct: fuelPct),
           ],
         ),
+        if (showRpmValue) ...[
+          const SizedBox(height: 6),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Text(
+                currentRpm.round().toString(),
+                style: const TextStyle(
+                  color: AppColors.textWhite,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                  fontFeatures: [FontFeature.tabularFigures()],
+                ),
+              ),
+              const SizedBox(width: 6),
+              const Text('RPM', style: TextStyle(color: AppColors.textMuted, fontSize: 14, fontWeight: FontWeight.w600)),
+            ],
+          ),
+        ],
       ],
     );
   }
@@ -145,8 +186,7 @@ class _GaugeReadout extends StatelessWidget {
 class _RpmGaugePainter extends CustomPainter {
   final double currentRpm;
   final double maxRpm;
-  final double minAlertRpm;
-  final double maxAlertRpm;
+  final double blinkOpacity;
 
   static const double _startAngleDeg = 150; // ~8 o'clock
   static const double _sweepAngleDeg = 240; // ends ~4 o'clock, open gap at the bottom
@@ -154,8 +194,7 @@ class _RpmGaugePainter extends CustomPainter {
   _RpmGaugePainter({
     required this.currentRpm,
     required this.maxRpm,
-    required this.minAlertRpm,
-    required this.maxAlertRpm,
+    required this.blinkOpacity,
   });
 
   double _angleForRpm(double rpm) {
@@ -172,68 +211,82 @@ class _RpmGaugePainter extends CustomPainter {
     const strokeWidth = 14.0;
 
     final startRad = _angleForRpm(0);
-    final minAlertRad = _angleForRpm(minAlertRpm);
-    final maxAlertRad = _angleForRpm(maxAlertRpm);
     final endRad = _angleForRpm(maxRpm);
+    final redStartRad = _angleForRpm(maxRpm * RpmGauge.redThreshold);
+    final blinkStartRad = _angleForRpm(maxRpm * RpmGauge.blinkThreshold);
+    final currentRad = _angleForRpm(currentRpm);
 
-    // Yellow zone: 0 -> minAlertRpm.
+    // Dark unfilled track across the whole scale first.
     canvas.drawArc(
       arcRect,
       startRad,
-      minAlertRad - startRad,
+      endRad - startRad,
       false,
       Paint()
-        ..color = AppColors.accentYellow
+        ..color = AppColors.trackDark
         ..style = PaintingStyle.stroke
         ..strokeWidth = strokeWidth
         ..strokeCap = StrokeCap.butt,
     );
 
-    // Orange zone: minAlertRpm -> maxAlertRpm, gradient smoothly out of yellow.
-    canvas.drawArc(
-      arcRect,
-      minAlertRad,
-      maxAlertRad - minAlertRad,
-      false,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = strokeWidth
-        ..strokeCap = StrokeCap.butt
-        ..shader = SweepGradient(
-          startAngle: minAlertRad,
-          endAngle: maxAlertRad,
-          colors: const [AppColors.accentYellow, AppColors.accentOrange],
-        ).createShader(arcRect),
-    );
+    // Filled part: 0 -> currentRpm. Yellow up to 90% of max RPM, solid red 90-95%,
+    // blinking red above 95% — a fixed proportion of redline, same in every car.
+    if (currentRad > startRad) {
+      final yellowEndRad = math.min(currentRad, redStartRad);
+      canvas.drawArc(
+        arcRect,
+        startRad,
+        yellowEndRad - startRad,
+        false,
+        Paint()
+          ..color = AppColors.accentYellow
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = strokeWidth
+          ..strokeCap = StrokeCap.butt,
+      );
 
-    // Red zone: maxAlertRpm -> maxRpm (redline).
-    canvas.drawArc(
-      arcRect,
-      maxAlertRad,
-      endRad - maxAlertRad,
-      false,
-      Paint()
-        ..color = AppColors.accentRed
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = strokeWidth
-        ..strokeCap = StrokeCap.butt,
-    );
+      if (currentRad > redStartRad) {
+        final solidRedEndRad = math.min(currentRad, blinkStartRad);
+        canvas.drawArc(
+          arcRect,
+          redStartRad,
+          solidRedEndRad - redStartRad,
+          false,
+          Paint()
+            ..color = AppColors.accentRed
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = strokeWidth
+            ..strokeCap = StrokeCap.butt,
+        );
 
-    _drawTicksAndLabels(canvas, center, arcRadius, strokeWidth, maxAlertRad);
-    _drawNeedleValue(canvas, center, arcRadius);
+        if (currentRad > blinkStartRad) {
+          canvas.drawArc(
+            arcRect,
+            blinkStartRad,
+            currentRad - blinkStartRad,
+            false,
+            Paint()
+              ..color = AppColors.accentRed.withValues(alpha: blinkOpacity)
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = strokeWidth
+              ..strokeCap = StrokeCap.butt,
+          );
+        }
+      }
+    }
+
+    _drawTicks(canvas, center, arcRadius, strokeWidth);
   }
 
-  void _drawTicksAndLabels(Canvas canvas, Offset center, double arcRadius, double bandWidth, double maxAlertRad) {
-    final majorStep = maxRpm / 10; // 11 major ticks: 0..10 (or 0..maxRpm/1000 if not a multiple of 10k)
-    final minorStep = majorStep / 5;
-
-    for (double rpm = 0; rpm <= maxRpm + 0.01; rpm += minorStep) {
-      final isMajor = (rpm / majorStep) % 1 < 0.001 || (rpm / majorStep) % 1 > 0.999;
+  void _drawTicks(Canvas canvas, Offset center, double arcRadius, double bandWidth) {
+    const tickCount = 40; // ticks only, no numeric labels — reads as a proportion, not a value
+    for (var i = 0; i <= tickCount; i++) {
+      final rpm = maxRpm * i / tickCount;
+      final isMajor = i % 5 == 0;
       final angle = _angleForRpm(rpm);
-      final isRedline = rpm >= maxAlertRpm - 0.01;
 
-      final tickLength = isMajor ? bandWidth * 0.9 : bandWidth * 0.45;
-      final tickStrokeWidth = isMajor ? (isRedline ? 3.0 : 2.2) : (isRedline ? 2.2 : 1.4);
+      final tickLength = isMajor ? bandWidth * 0.9 : bandWidth * 0.4;
+      final tickStrokeWidth = isMajor ? 2.2 : 1.2;
 
       final outerR = arcRadius + bandWidth / 2 + 2;
       final innerR = outerR - tickLength;
@@ -248,45 +301,13 @@ class _RpmGaugePainter extends CustomPainter {
           ..strokeWidth = tickStrokeWidth
           ..strokeCap = StrokeCap.round,
       );
-
-      if (isMajor) {
-        final labelR = outerR + 20;
-        final labelPos = Offset(center.dx + labelR * math.cos(angle), center.dy + labelR * math.sin(angle));
-        final label = (rpm / majorStep).round().toString();
-        final tp = TextPainter(
-          text: TextSpan(
-            text: label,
-            style: const TextStyle(color: AppColors.textWhite, fontSize: 20, fontWeight: FontWeight.w700),
-          ),
-          textDirection: TextDirection.ltr,
-        )..layout();
-        tp.paint(canvas, labelPos - Offset(tp.width / 2, tp.height / 2));
-      }
     }
-  }
-
-  void _drawNeedleValue(Canvas canvas, Offset center, double arcRadius) {
-    // A short bright indicator tick at the current RPM position, on the inner edge of the band.
-    final angle = _angleForRpm(currentRpm);
-    final outerR = arcRadius + 10;
-    final innerR = arcRadius - 14;
-    final p1 = Offset(center.dx + innerR * math.cos(angle), center.dy + innerR * math.sin(angle));
-    final p2 = Offset(center.dx + outerR * math.cos(angle), center.dy + outerR * math.sin(angle));
-    canvas.drawLine(
-      p1,
-      p2,
-      Paint()
-        ..color = AppColors.textWhite
-        ..strokeWidth = 3
-        ..strokeCap = StrokeCap.round,
-    );
   }
 
   @override
   bool shouldRepaint(covariant _RpmGaugePainter oldDelegate) {
     return oldDelegate.currentRpm != currentRpm ||
         oldDelegate.maxRpm != maxRpm ||
-        oldDelegate.minAlertRpm != minAlertRpm ||
-        oldDelegate.maxAlertRpm != maxAlertRpm;
+        oldDelegate.blinkOpacity != blinkOpacity;
   }
 }

@@ -13,6 +13,7 @@ import '../backend/pairing_client.dart';
 import '../backend/telemetry_uplink.dart';
 import '../gt7/gt7_socket.dart';
 import '../gt7/gt7_telemetry.dart';
+import '../gt7/lap_delta_tracker.dart';
 import '../layouts/dashboard_landscape_layout.dart';
 import '../layouts/dashboard_portrait_layout.dart';
 import '../theme/app_colors.dart';
@@ -58,6 +59,8 @@ class _HudScreenState extends State<HudScreen> {
   bool _ps5Connected = false;
   bool _lastIngestOk = true;
   PairingResult? _session;
+  final _lapDeltaTracker = LapDeltaTracker();
+  double? _deltaSeconds;
 
   // Discord login state — replaces pairing codes.
   String? _appToken;
@@ -229,8 +232,12 @@ class _HudScreenState extends State<HudScreen> {
 
       _telemetrySub = gt7.telemetry.listen((t) {
         uplink.update(t);
+        final delta = _lapDeltaTracker.update(t);
         if (!mounted) return;
-        setState(() => _latestTelemetry = t);
+        setState(() {
+          _latestTelemetry = t;
+          _deltaSeconds = delta;
+        });
       });
       _ps5ConnSub = gt7.connectionStatus.listen((connected) {
         if (!mounted) return;
@@ -492,9 +499,6 @@ class _HudScreenState extends State<HudScreen> {
   /// once telemetry is actually flowing. Same widgets/layouts as the static preview
   /// (lib/screens/dashboard_screen.dart), just fed from the live GT7 stream.
   Widget _buildLiveDashboard(Gt7Telemetry t) {
-    final driverName = _session?.driverName ?? _driverName ?? '—';
-    final ps5Ip = _ps5IpForDisplay;
-
     return Scaffold(
       backgroundColor: AppColors.bgDark,
       body: SafeArea(
@@ -509,11 +513,8 @@ class _HudScreenState extends State<HudScreen> {
             );
             return orientation == Orientation.landscape
                 ? DashboardLandscapeLayout(
-                    driverName: driverName,
-                    ps5Ip: ps5Ip,
                     ps5Online: _ps5Connected,
                     serverOnline: _lastIngestOk,
-                    wifiConnected: true,
                     onDisconnect: _disconnect,
                     currentLap: t.currentLap,
                     totalLaps: t.totalLaps,
@@ -526,17 +527,17 @@ class _HudScreenState extends State<HudScreen> {
                     gear: t.gear,
                     speedKmh: t.speedKph,
                     fuelPct: t.fuelPct,
+                    deltaSeconds: _deltaSeconds,
                     tireTempFL: t.tireTempFL,
                     tireTempFR: t.tireTempFR,
                     tireTempRL: t.tireTempRL,
                     tireTempRR: t.tireTempRR,
+                    throttlePct: t.throttlePct,
+                    brakePct: t.brakePct,
                   )
                 : DashboardPortraitLayout(
-                    driverName: driverName,
-                    ps5Ip: ps5Ip,
                     ps5Online: _ps5Connected,
                     serverOnline: _lastIngestOk,
-                    wifiConnected: true,
                     onDisconnect: _disconnect,
                     currentLap: t.currentLap,
                     totalLaps: t.totalLaps,
@@ -549,10 +550,13 @@ class _HudScreenState extends State<HudScreen> {
                     gear: t.gear,
                     speedKmh: t.speedKph,
                     fuelPct: t.fuelPct,
+                    deltaSeconds: _deltaSeconds,
                     tireTempFL: t.tireTempFL,
                     tireTempFR: t.tireTempFR,
                     tireTempRL: t.tireTempRL,
                     tireTempRR: t.tireTempRR,
+                    throttlePct: t.throttlePct,
+                    brakePct: t.brakePct,
                   );
           },
         ),
