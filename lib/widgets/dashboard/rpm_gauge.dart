@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../gt7/fuel_calculator.dart';
 import '../../theme/app_colors.dart';
 import 'fuel_indicator.dart';
 
@@ -20,6 +21,8 @@ class RpmGauge extends StatefulWidget {
   final double speedKmh;
   final double? fuelPct;
   final bool showRpmValue;
+  final FuelCalculatorResult? fuelResult;
+  final int? lapsOnCurrentFuel;
 
   const RpmGauge({
     super.key,
@@ -31,6 +34,8 @@ class RpmGauge extends StatefulWidget {
     required this.speedKmh,
     this.fuelPct,
     this.showRpmValue = true,
+    this.fuelResult,
+    this.lapsOnCurrentFuel,
   });
 
   static const double redThreshold = 0.90;
@@ -88,6 +93,8 @@ class _RpmGaugeState extends State<RpmGauge> with SingleTickerProviderStateMixin
                         currentRpm: widget.currentRpm,
                         fuelPct: widget.fuelPct,
                         showRpmValue: widget.showRpmValue,
+                        fuelResult: widget.fuelResult,
+                        lapsOnCurrentFuel: widget.lapsOnCurrentFuel,
                       ),
                     ),
                   ),
@@ -107,6 +114,8 @@ class _GaugeReadout extends StatelessWidget {
   final double currentRpm;
   final double? fuelPct;
   final bool showRpmValue;
+  final FuelCalculatorResult? fuelResult;
+  final int? lapsOnCurrentFuel;
 
   const _GaugeReadout({
     required this.gear,
@@ -114,6 +123,8 @@ class _GaugeReadout extends StatelessWidget {
     required this.currentRpm,
     this.fuelPct,
     this.showRpmValue = true,
+    this.fuelResult,
+    this.lapsOnCurrentFuel,
   });
 
   /// 0 = neutral, 15 = reverse (standard GT convention) — otherwise the raw gear number.
@@ -137,6 +148,10 @@ class _GaugeReadout extends StatelessWidget {
           style: TextStyle(color: AppColors.accentYellow, fontSize: 20, fontWeight: FontWeight.w700, letterSpacing: 2),
         ),
         const SizedBox(height: 8),
+        if (fuelResult != null || lapsOnCurrentFuel != null) ...[
+          _FuelRangeInfo(fuelResult: fuelResult, lapsOnCurrentFuel: lapsOnCurrentFuel),
+          const SizedBox(height: 4),
+        ],
         Row(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.baseline,
@@ -178,6 +193,41 @@ class _GaugeReadout extends StatelessWidget {
             ],
           ),
         ],
+      ],
+    );
+  }
+}
+
+/// Two clear pieces of fuel info, shown above the speed/fuel-% row once there's at least
+/// one completed lap of consumption data: whether the current tank has enough to finish
+/// the configured race, and — independent of any race config — how many full laps the
+/// current tank alone is good for.
+class _FuelRangeInfo extends StatelessWidget {
+  final FuelCalculatorResult? fuelResult;
+  final int? lapsOnCurrentFuel;
+
+  const _FuelRangeInfo({this.fuelResult, this.lapsOnCurrentFuel});
+
+  @override
+  Widget build(BuildContext context) {
+    final result = fuelResult;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (result != null)
+          Text(
+            result.fuelDeficitPct > 0 ? 'Brakuje ${result.fuelDeficitPct.round()}% do mety' : 'Paliwo do mety: OK',
+            style: TextStyle(
+              color: result.fuelDeficitPct > 0 ? AppColors.accentRed : AppColors.accentGreen,
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        if (lapsOnCurrentFuel != null)
+          Text(
+            'Zapas: $lapsOnCurrentFuel okr.',
+            style: const TextStyle(color: AppColors.textWhite, fontSize: 14, fontWeight: FontWeight.w600),
+          ),
       ],
     );
   }

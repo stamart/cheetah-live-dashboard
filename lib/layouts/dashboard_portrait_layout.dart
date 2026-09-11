@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 
+import '../gt7/fuel_calculator.dart';
 import '../theme/app_colors.dart';
 import '../widgets/dashboard/delta_bar.dart';
 import '../widgets/dashboard/fuel_bar.dart';
+import '../widgets/dashboard/fuel_calculator_chip.dart';
 import '../widgets/dashboard/lap_info_card.dart';
 import '../widgets/dashboard/menu_exit_button.dart';
 import '../widgets/dashboard/mini_status_bar.dart';
+import '../widgets/dashboard/race_countdown.dart';
 import '../widgets/dashboard/rpm_gauge.dart';
 import '../widgets/dashboard/throttle_brake_chart.dart';
 import '../widgets/dashboard/tire_panel.dart';
@@ -30,6 +33,11 @@ class DashboardPortraitLayout extends StatelessWidget {
   final double speedKmh;
   final double? fuelPct;
   final double? deltaSeconds;
+  final RaceConfig? raceConfig;
+  final FuelCalculatorResult? fuelResult;
+  final double? remainingRaceSeconds;
+  final VoidCallback? onFuelChipTap;
+  final int? lapsOnCurrentFuel;
 
   final double tireTempFL;
   final double tireTempFR;
@@ -58,6 +66,11 @@ class DashboardPortraitLayout extends StatelessWidget {
     required this.speedKmh,
     this.fuelPct,
     this.deltaSeconds,
+    this.raceConfig,
+    this.fuelResult,
+    this.remainingRaceSeconds,
+    this.onFuelChipTap,
+    this.lapsOnCurrentFuel,
     required this.tireTempFL,
     required this.tireTempFR,
     required this.tireTempRL,
@@ -75,84 +88,109 @@ class DashboardPortraitLayout extends StatelessWidget {
     // empty — free real estate, not stolen from anything else) is what makes this fit in
     // one screen at all; a separate lap/position row above the gauge, like landscape has
     // room for, doesn't fit here.
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return FittedBox(
-          fit: BoxFit.scaleDown,
-          alignment: Alignment.topCenter,
-          child: SizedBox(
-            width: constraints.maxWidth,
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Row(
-                    children: [
-                      MiniStatusBar(ps5Online: ps5Online, serverOnline: serverOnline, scale: 0.85),
-                      const Spacer(),
-                      if (onDisconnect != null) MenuExitButton(onPressed: onDisconnect!, scale: 0.85),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Stack(
-                    children: [
-                      Transform.scale(
-                        scale: 1.2,
-                        child: RpmGauge(
-                          currentRpm: currentRpm,
-                          maxRpm: maxRpm,
-                          minAlertRpm: minAlertRpm,
-                          maxAlertRpm: maxAlertRpm,
-                          gear: gear,
-                          speedKmh: speedKmh,
-                          fuelPct: fuelPct,
-                          showRpmValue: false,
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.topCenter,
+                child: SizedBox(
+                  width: constraints.maxWidth,
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          children: [
+                            MiniStatusBar(ps5Online: ps5Online, serverOnline: serverOnline, scale: 0.85),
+                            const Spacer(),
+                            if (onDisconnect != null) MenuExitButton(onPressed: onDisconnect!, scale: 0.85),
+                          ],
                         ),
-                      ),
-                      Positioned(
-                        bottom: 0,
-                        left: 0,
-                        width: 110,
-                        child: LapInfoCard.position(current: positionCurrent, total: positionTotal),
-                      ),
-                      Positioned(
-                        bottom: 0,
-                        right: 0,
-                        width: 110,
-                        child: LapInfoCard.lapCounter(current: currentLap, total: totalLaps),
-                      ),
-                    ],
+                        const SizedBox(height: 12),
+                        Stack(
+                          children: [
+                            Transform.scale(
+                              scale: 1.2,
+                              child: RpmGauge(
+                                currentRpm: currentRpm,
+                                maxRpm: maxRpm,
+                                minAlertRpm: minAlertRpm,
+                                maxAlertRpm: maxAlertRpm,
+                                gear: gear,
+                                speedKmh: speedKmh,
+                                fuelPct: fuelPct,
+                                showRpmValue: false,
+                                fuelResult: fuelResult,
+                                lapsOnCurrentFuel: lapsOnCurrentFuel,
+                              ),
+                            ),
+                            Positioned(
+                              bottom: 0,
+                              left: 0,
+                              width: 110,
+                              child: LapInfoCard.position(current: positionCurrent, total: positionTotal),
+                            ),
+                            Positioned(
+                              bottom: 0,
+                              right: 0,
+                              width: 110,
+                              child: LapInfoCard.lapCounter(current: currentLap, total: totalLaps),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        SizedBox(height: 48, child: DeltaBar(deltaSeconds: deltaSeconds)),
+                        const SizedBox(height: 8),
+                        SizedBox(height: 10, child: FuelBar(fuelPct: fuelPct)),
+                        const SizedBox(height: 10),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              lastLapTime,
+                              style: const TextStyle(color: AppColors.textWhite, fontSize: 24, fontWeight: FontWeight.w800, fontFeatures: [FontFeature.tabularFigures()]),
+                            ),
+                            const SizedBox(width: 24),
+                            Text(
+                              bestLapTime,
+                              style: const TextStyle(color: AppColors.accentPurple, fontSize: 24, fontWeight: FontWeight.w800, fontFeatures: [FontFeature.tabularFigures()]),
+                            ),
+                          ],
+                        ),
+                        if (remainingRaceSeconds != null) ...[
+                          const SizedBox(height: 6),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              RaceCountdown(remainingSeconds: remainingRaceSeconds!),
+                              const SizedBox(width: 8),
+                              const Text('🏁', style: TextStyle(fontSize: 20)),
+                            ],
+                          ),
+                        ],
+                        const SizedBox(height: 14),
+                        TirePanel(tempFL: tireTempFL, tempFR: tireTempFR, tempRL: tireTempRL, tempRR: tireTempRR, rowGap: 10),
+                        const SizedBox(height: 14),
+                        ThrottleBrakeChart(throttlePct: throttlePct, brakePct: brakePct),
+                      ],
+                    ),
                   ),
-                  const SizedBox(height: 4),
-                  SizedBox(height: 48, child: DeltaBar(deltaSeconds: deltaSeconds)),
-                  const SizedBox(height: 8),
-                  SizedBox(height: 10, child: FuelBar(fuelPct: fuelPct)),
-                  const SizedBox(height: 10),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        lastLapTime,
-                        style: const TextStyle(color: AppColors.textWhite, fontSize: 24, fontWeight: FontWeight.w800, fontFeatures: [FontFeature.tabularFigures()]),
-                      ),
-                      const SizedBox(width: 24),
-                      Text(
-                        bestLapTime,
-                        style: const TextStyle(color: AppColors.accentPurple, fontSize: 24, fontWeight: FontWeight.w800, fontFeatures: [FontFeature.tabularFigures()]),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  TirePanel(tempFL: tireTempFL, tempFR: tireTempFR, tempRL: tireTempRL, tempRR: tireTempRR, rowGap: 10),
-                  const SizedBox(height: 14),
-                  ThrottleBrakeChart(throttlePct: throttlePct, brakePct: brakePct),
-                ],
-              ),
-            ),
+                ),
+              );
+            },
           ),
-        );
-      },
+        ),
+        if (onFuelChipTap != null)
+          Positioned(
+            bottom: 16,
+            left: 16,
+            child: FuelCalculatorChip(config: raceConfig, result: fuelResult, onTap: onFuelChipTap!),
+          ),
+      ],
     );
   }
 }

@@ -11,12 +11,15 @@ import '../backend/app_token_store.dart';
 import '../backend/discord_auth_client.dart';
 import '../backend/pairing_client.dart';
 import '../backend/telemetry_uplink.dart';
+import '../gt7/fuel_calculator.dart';
 import '../gt7/gt7_socket.dart';
 import '../gt7/gt7_telemetry.dart';
+import '../gt7/gt7_telemetry_simulator.dart';
 import '../gt7/lap_delta_tracker.dart';
 import '../layouts/dashboard_landscape_layout.dart';
 import '../layouts/dashboard_portrait_layout.dart';
 import '../theme/app_colors.dart';
+import '../widgets/dashboard/session_config_sheet.dart';
 
 const _kPrefPs5Ip = 'ps5_ip';
 const _kPrefBackendUrl = 'backend_url';
@@ -52,6 +55,8 @@ class _HudScreenState extends State<HudScreen> {
   TelemetryUplink? _uplink;
   StreamSubscription<Gt7Telemetry>? _telemetrySub;
   StreamSubscription<bool>? _ps5ConnSub;
+  Gt7TelemetrySimulator? _demoSimulator;
+  StreamSubscription<Gt7Telemetry>? _demoSub;
 
   _SessionState _state = _SessionState.setup;
   String? _errorMessage;
@@ -61,6 +66,10 @@ class _HudScreenState extends State<HudScreen> {
   PairingResult? _session;
   final _lapDeltaTracker = LapDeltaTracker();
   double? _deltaSeconds;
+  final _fuelCalculator = FuelCalculator();
+  RaceConfig? _raceConfig;
+  bool _configPromptShown = false;
+  Timer? _configPromptTimer;
 
   // Discord login state — replaces pairing codes.
   String? _appToken;
@@ -233,6 +242,7 @@ class _HudScreenState extends State<HudScreen> {
       _telemetrySub = gt7.telemetry.listen((t) {
         uplink.update(t);
         final delta = _lapDeltaTracker.update(t);
+        _fuelCalculator.update(currentLap: t.currentLap, fuelPct: t.fuelPct);
         if (!mounted) return;
         setState(() {
           _latestTelemetry = t;
@@ -250,6 +260,7 @@ class _HudScreenState extends State<HudScreen> {
         _session = session;
         _state = _SessionState.live;
       });
+      _maybeShowSessionConfigPrompt();
     } on AppTokenExpiredException {
       await _handleExpiredToken();
       setState(() => _state = _SessionState.setup);
@@ -261,11 +272,66 @@ class _HudScreenState extends State<HudScreen> {
     }
   }
 
+  /// Demo mode — no PS5, no backend, no network at all. Feeds a synthetic telemetry
+  /// stream through the exact same live-dashboard pipeline as a real session, so the
+  /// dashboard can be shown/reviewed without any hardware (Play Store review has no PS5
+  /// to connect to; this is also just handy for showing someone the app).
+  void _startDemo() {
+    final sim = Gt7TelemetrySimulator()..start();
+    _demoSub = sim.telemetry.listen((t) {
+      final delta = _lapDeltaTracker.update(t);
+      _fuelCalculator.update(currentLap: t.currentLap, fuelPct: t.fuelPct);
+      if (!mounted) return;
+      setState(() {
+        _latestTelemetry = t;
+        _deltaSeconds = delta;
+      });
+    });
+    setState(() {
+      _demoSimulator = sim;
+      _ps5Connected = true;
+      _lastIngestOk = true;
+      _state = _SessionState.live;
+    });
+    _maybeShowSessionConfigPrompt();
+  }
+
+  /// Shown once per session, only the first time the live dashboard is reached — an
+  /// auto-dismissing (10s) prompt for the driver to set session type / race format, since
+  /// GT7 telemetry has none of this (see docs/superpowers/plans in the main monorepo,
+  /// item 18). Skipped entirely once already shown/answered this session; the driver can
+  /// still open the same sheet any time via the persistent fuel-calculator chip.
+  void _maybeShowSessionConfigPrompt() {
+    if (_configPromptShown) return;
+    _configPromptShown = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _openSessionConfigSheet(autoDismiss: true));
+  }
+
+  Future<void> _openSessionConfigSheet({bool autoDismiss = false}) async {
+    if (!mounted) return;
+    if (autoDismiss) {
+      _configPromptTimer = Timer(const Duration(seconds: 10), () {
+        if (mounted && Navigator.of(context).canPop()) Navigator.of(context).pop();
+      });
+    }
+    final cfg = await SessionConfigSheet.show(context);
+    _configPromptTimer?.cancel();
+    if (cfg != null && mounted) {
+      setState(() {
+        _raceConfig = cfg;
+        _fuelCalculator.config = cfg;
+      });
+    }
+  }
+
   Future<void> _disconnect() async {
     await _telemetrySub?.cancel();
     await _ps5ConnSub?.cancel();
+    await _demoSub?.cancel();
     _uplink?.stop();
     _gt7Socket?.dispose();
+    _demoSimulator?.dispose();
+    _configPromptTimer?.cancel();
     await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     setState(() {
       _gt7Socket = null;
@@ -273,6 +339,10 @@ class _HudScreenState extends State<HudScreen> {
       _session = null;
       _latestTelemetry = null;
       _ps5Connected = false;
+      _demoSimulator = null;
+      _raceConfig = null;
+      _fuelCalculator.config = null;
+      _configPromptShown = false;
       _state = _SessionState.setup;
     });
   }
@@ -281,8 +351,11 @@ class _HudScreenState extends State<HudScreen> {
   void dispose() {
     _telemetrySub?.cancel();
     _ps5ConnSub?.cancel();
+    _demoSub?.cancel();
     _uplink?.stop();
     _gt7Socket?.dispose();
+    _demoSimulator?.dispose();
+    _configPromptTimer?.cancel();
     _ps5IpController.dispose();
     WakelockPlus.disable();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -309,6 +382,12 @@ class _HudScreenState extends State<HudScreen> {
   Widget _buildSetup() {
     return ListView(
       children: [
+        OutlinedButton.icon(
+          onPressed: _startDemo,
+          icon: const Icon(Icons.play_circle_outline),
+          label: const Text('Tryb demo (bez PS5)'),
+        ),
+        const SizedBox(height: 20),
         TextField(
           controller: _ps5IpController,
           decoration: const InputDecoration(
@@ -499,6 +578,17 @@ class _HudScreenState extends State<HudScreen> {
   /// once telemetry is actually flowing. Same widgets/layouts as the static preview
   /// (lib/screens/dashboard_screen.dart), just fed from the live GT7 stream.
   Widget _buildLiveDashboard(Gt7Telemetry t) {
+    final fuelResult = _fuelCalculator.compute(currentLap: t.currentLap, fuelPct: t.fuelPct);
+    final raceConfig = _raceConfig;
+    final remainingRaceSeconds = raceConfig != null && raceConfig.isTimedRace
+        ? (raceConfig.durationMinutes! * 60) - _fuelCalculator.elapsedRaceTimeSec
+        : null;
+    final effectiveTotalLaps = raceConfig != null && raceConfig.isLapRace ? raceConfig.totalLaps! : t.totalLaps;
+    final avgFuelPerLap = _fuelCalculator.avgFuelPerLap;
+    final lapsOnCurrentFuel = (t.fuelPct != null && avgFuelPerLap != null && avgFuelPerLap > 0)
+        ? (t.fuelPct! / avgFuelPerLap).floor()
+        : null;
+
     return Scaffold(
       backgroundColor: AppColors.bgDark,
       body: SafeArea(
@@ -517,7 +607,7 @@ class _HudScreenState extends State<HudScreen> {
                     serverOnline: _lastIngestOk,
                     onDisconnect: _disconnect,
                     currentLap: t.currentLap,
-                    totalLaps: t.totalLaps,
+                    totalLaps: effectiveTotalLaps,
                     lastLapTime: _fmtLap(t.lastLapTimeMs),
                     bestLapTime: _fmtLap(t.bestLapTimeMs),
                     currentRpm: t.rpm,
@@ -528,6 +618,11 @@ class _HudScreenState extends State<HudScreen> {
                     speedKmh: t.speedKph,
                     fuelPct: t.fuelPct,
                     deltaSeconds: _deltaSeconds,
+                    raceConfig: raceConfig,
+                    fuelResult: fuelResult,
+                    lapsOnCurrentFuel: lapsOnCurrentFuel,
+                    remainingRaceSeconds: remainingRaceSeconds,
+                    onFuelChipTap: () => _openSessionConfigSheet(),
                     tireTempFL: t.tireTempFL,
                     tireTempFR: t.tireTempFR,
                     tireTempRL: t.tireTempRL,
@@ -540,7 +635,7 @@ class _HudScreenState extends State<HudScreen> {
                     serverOnline: _lastIngestOk,
                     onDisconnect: _disconnect,
                     currentLap: t.currentLap,
-                    totalLaps: t.totalLaps,
+                    totalLaps: effectiveTotalLaps,
                     lastLapTime: _fmtLap(t.lastLapTimeMs),
                     bestLapTime: _fmtLap(t.bestLapTimeMs),
                     currentRpm: t.rpm,
@@ -551,6 +646,11 @@ class _HudScreenState extends State<HudScreen> {
                     speedKmh: t.speedKph,
                     fuelPct: t.fuelPct,
                     deltaSeconds: _deltaSeconds,
+                    raceConfig: raceConfig,
+                    fuelResult: fuelResult,
+                    lapsOnCurrentFuel: lapsOnCurrentFuel,
+                    remainingRaceSeconds: remainingRaceSeconds,
+                    onFuelChipTap: () => _openSessionConfigSheet(),
                     tireTempFL: t.tireTempFL,
                     tireTempFR: t.tireTempFR,
                     tireTempRL: t.tireTempRL,

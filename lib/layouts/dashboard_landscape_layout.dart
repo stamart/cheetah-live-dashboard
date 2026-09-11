@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 
+import '../gt7/fuel_calculator.dart';
 import '../widgets/dashboard/delta_bar.dart';
 import '../widgets/dashboard/fuel_bar.dart';
+import '../widgets/dashboard/fuel_calculator_chip.dart';
 import '../widgets/dashboard/lap_info_card.dart';
 import '../widgets/dashboard/menu_exit_button.dart';
 import '../widgets/dashboard/mini_status_bar.dart';
+import '../widgets/dashboard/race_countdown.dart';
 import '../widgets/dashboard/rpm_gauge.dart';
 import '../widgets/dashboard/throttle_brake_chart.dart';
 import '../widgets/dashboard/tire_panel.dart';
@@ -33,6 +36,11 @@ class DashboardLandscapeLayout extends StatelessWidget {
   final double speedKmh;
   final double? fuelPct;
   final double? deltaSeconds;
+  final RaceConfig? raceConfig;
+  final FuelCalculatorResult? fuelResult;
+  final double? remainingRaceSeconds;
+  final VoidCallback? onFuelChipTap;
+  final int? lapsOnCurrentFuel;
 
   final double tireTempFL;
   final double tireTempFR;
@@ -61,6 +69,11 @@ class DashboardLandscapeLayout extends StatelessWidget {
     required this.speedKmh,
     this.fuelPct,
     this.deltaSeconds,
+    this.raceConfig,
+    this.fuelResult,
+    this.remainingRaceSeconds,
+    this.onFuelChipTap,
+    this.lapsOnCurrentFuel,
     required this.tireTempFL,
     required this.tireTempFR,
     required this.tireTempRL,
@@ -118,6 +131,8 @@ class DashboardLandscapeLayout extends StatelessWidget {
                           gear: gear,
                           speedKmh: speedKmh,
                           fuelPct: fuelPct,
+                          fuelResult: fuelResult,
+                          lapsOnCurrentFuel: lapsOnCurrentFuel,
                         ),
                       ),
                     ),
@@ -125,6 +140,9 @@ class DashboardLandscapeLayout extends StatelessWidget {
                     SizedBox(height: 48, width: 320, child: DeltaBar(deltaSeconds: deltaSeconds)),
                     const SizedBox(height: 6),
                     SizedBox(height: 11, width: 320, child: FuelBar(fuelPct: fuelPct)),
+                    const SizedBox(height: 10),
+                    if (onFuelChipTap != null)
+                      FuelCalculatorChip(config: raceConfig, result: fuelResult, onTap: onFuelChipTap!),
                   ],
                 ),
               ),
@@ -149,6 +167,13 @@ class DashboardLandscapeLayout extends StatelessWidget {
           left: 12,
           child: MiniStatusBar(ps5Online: ps5Online, serverOnline: serverOnline, scale: 0.85),
         ),
+        if (remainingRaceSeconds != null)
+          Positioned(
+            top: 8,
+            left: 0,
+            right: 0,
+            child: Center(child: RaceCountdown(remainingSeconds: remainingRaceSeconds!)),
+          ),
         if (onDisconnect != null)
           Positioned(
             top: 0,
