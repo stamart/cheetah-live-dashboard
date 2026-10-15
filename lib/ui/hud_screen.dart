@@ -16,13 +16,16 @@ import '../gt7/gt7_socket.dart';
 import '../gt7/gt7_telemetry.dart';
 import '../gt7/gt7_telemetry_simulator.dart';
 import '../gt7/lap_delta_tracker.dart';
+import '../i18n/app_strings.dart';
 import '../layouts/dashboard_landscape_layout.dart';
 import '../layouts/dashboard_portrait_layout.dart';
 import '../theme/app_colors.dart';
 import '../widgets/dashboard/session_config_sheet.dart';
+import 'session_wizard.dart';
 
 const _kPrefPs5Ip = 'ps5_ip';
 const _kPrefBackendUrl = 'backend_url';
+const _kPrefLang = 'app_lang';
 
 class BackendServerOption {
   final String label;
@@ -50,6 +53,8 @@ class _HudScreenState extends State<HudScreen> {
   final _ps5IpController = TextEditingController();
   final _tokenStore = AppTokenStore();
   String _backendUrl = _kDefaultBackendUrl;
+  AppLang _lang = AppLang.pl;
+  AppStrings get s => AppStrings(_lang);
 
   Gt7Socket? _gt7Socket;
   TelemetryUplink? _uplink;
@@ -82,7 +87,10 @@ class _HudScreenState extends State<HudScreen> {
   @override
   void initState() {
     super.initState();
-    WakelockPlus.enable(); // keep the screen awake from launch, not just after pairing
+    // keep the screen awake from launch, not just after pairing — on web, the Wake Lock API
+    // rejects if the tab isn't visible (e.g. focus moved to the Discord login tab), so this
+    // must not be allowed to surface as an uncaught error
+    WakelockPlus.enable().catchError((_) {});
     _loadPrefs();
     _loadStoredAuth();
   }
@@ -91,12 +99,19 @@ class _HudScreenState extends State<HudScreen> {
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
     final storedBackendUrl = prefs.getString(_kPrefBackendUrl);
+    final storedLang = prefs.getString(_kPrefLang);
     setState(() {
       _ps5IpController.text = prefs.getString(_kPrefPs5Ip) ?? '';
-      _backendUrl = _kBackendServers.any((s) => s.url == storedBackendUrl)
+      _backendUrl = _kBackendServers.any((o) => o.url == storedBackendUrl)
           ? storedBackendUrl!
           : _kDefaultBackendUrl;
+      _lang = storedLang == 'en' ? AppLang.en : AppLang.pl;
     });
+  }
+
+  void _setLang(AppLang lang) {
+    setState(() => _lang = lang);
+    SharedPreferences.getInstance().then((p) => p.setString(_kPrefLang, lang == AppLang.en ? 'en' : 'pl'));
   }
 
   Future<void> _savePrefs() async {
@@ -205,14 +220,14 @@ class _HudScreenState extends State<HudScreen> {
     if (ps5Ip.isEmpty) {
       setState(() {
         _state = _SessionState.error;
-        _errorMessage = 'Uzupełnij adres IP PS5.';
+        _errorMessage = s.missingPs5Ip;
       });
       return;
     }
     if (appToken == null) {
       setState(() {
         _state = _SessionState.error;
-        _errorMessage = 'Zaloguj się przez Discord przed połączeniem.';
+        _errorMessage = s.loginBeforeConnect;
       });
       return;
     }
@@ -369,53 +384,91 @@ class _HudScreenState extends State<HudScreen> {
       return _buildLiveDashboard(telemetry);
     }
     return Scaffold(
-      appBar: AppBar(title: const Text('Cheetah Live')),
+      backgroundColor: AppColors.bgDark,
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: _state == _SessionState.live ? _buildWaitingShell() : _buildSetup(),
+          padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _buildHeader(),
+              const SizedBox(height: 20),
+              Container(height: 2, color: AppColors.borderGray),
+              const SizedBox(height: 20),
+              Expanded(
+                child: _state == _SessionState.live ? _buildWaitingShell() : _buildSetup(),
+              ),
+            ],
+          ),
         ),
       ),
+    );
+  }
+
+  Widget _buildHeader() {
+    return Row(
+      children: [
+        Image.asset('assets/branding/cheetah-badge.png', height: 44),
+        const SizedBox(width: 14),
+        Image.asset('assets/branding/cheetah-wordmark.png', height: 20),
+        const Spacer(),
+        _LangPill(label: 'PL', selected: _lang == AppLang.pl, onTap: () => _setLang(AppLang.pl)),
+        const SizedBox(width: 8),
+        _LangPill(label: 'EN', selected: _lang == AppLang.en, onTap: () => _setLang(AppLang.en)),
+      ],
     );
   }
 
   Widget _buildSetup() {
     return ListView(
       children: [
-        OutlinedButton.icon(
-          onPressed: _startDemo,
-          icon: const Icon(Icons.play_circle_outline),
-          label: const Text('Tryb demo (bez PS5)'),
+        _OutlineActionButton(
+          onTap: _startDemo,
+          icon: Icons.play_circle_outline,
+          label: s.demoMode,
         ),
-        const SizedBox(height: 20),
-        TextField(
-          controller: _ps5IpController,
-          decoration: const InputDecoration(
-            labelText: 'Adres IP PS5 (ta sama sieć Wi-Fi)',
-            hintText: '192.168.1.150',
+        const SizedBox(height: 28),
+        _LabeledField(
+          label: s.ps5IpLabel,
+          child: TextField(
+            controller: _ps5IpController,
+            keyboardType: TextInputType.number,
+            style: const TextStyle(color: AppColors.textWhite, fontSize: 22, fontWeight: FontWeight.w800),
+            decoration: const InputDecoration(
+              isDense: true,
+              border: InputBorder.none,
+              hintText: '192.168.1.150',
+              hintStyle: TextStyle(color: AppColors.textMuted, fontWeight: FontWeight.w800),
+            ),
           ),
-          keyboardType: TextInputType.number,
         ),
         if (kDebugMode) ...[
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            initialValue: _backendUrl,
-            decoration: const InputDecoration(labelText: 'Adres serwera Cheetah'),
-            items: _kBackendServers
-                .map((s) => DropdownMenuItem(value: s.url, child: Text('${s.label} — ${s.url}')))
-                .toList(),
-            onChanged: (value) {
-              if (value == null) return;
-              setState(() => _backendUrl = value);
-              _savePrefs();
-            },
+          const SizedBox(height: 20),
+          _LabeledField(
+            label: s.serverLabel,
+            child: DropdownButtonFormField<String>(
+              initialValue: _backendUrl,
+              isExpanded: true,
+              dropdownColor: AppColors.bgCard,
+              icon: const Icon(Icons.expand_more, color: AppColors.textMuted),
+              style: const TextStyle(color: AppColors.textWhite, fontSize: 16, fontWeight: FontWeight.w800),
+              decoration: const InputDecoration(isDense: true, border: InputBorder.none),
+              items: _kBackendServers
+                  .map((s) => DropdownMenuItem(value: s.url, child: Text('${s.label} — ${s.url}')))
+                  .toList(),
+              onChanged: (value) {
+                if (value == null) return;
+                setState(() => _backendUrl = value);
+                _savePrefs();
+              },
+            ),
           ),
         ],
-        const SizedBox(height: 20),
+        const SizedBox(height: 24),
         if (_errorMessage != null)
           Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: Text(_errorMessage!, style: const TextStyle(color: Colors.red)),
+            padding: const EdgeInsets.only(bottom: 16),
+            child: Text(_errorMessage!, style: const TextStyle(color: AppColors.accentRed, fontWeight: FontWeight.w600)),
           ),
         if (_appToken == null) _buildLoginPrompt() else _buildLoggedInPicker(),
       ],
@@ -423,12 +476,11 @@ class _HudScreenState extends State<HudScreen> {
   }
 
   Widget _buildLoginPrompt() {
-    return FilledButton.icon(
-      onPressed: _loggingIn ? null : _loginWithDiscord,
-      icon: _loggingIn
-          ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2))
-          : const Icon(Icons.discord),
-      label: const Text('Zaloguj przez Discord'),
+    return _SolidActionButton(
+      onTap: _loggingIn ? null : _loginWithDiscord,
+      icon: _loggingIn ? null : Icons.discord,
+      label: s.loginWithDiscord,
+      loading: _loggingIn,
     );
   }
 
@@ -438,55 +490,97 @@ class _HudScreenState extends State<HudScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Container(width: 4, height: 22, color: AppColors.accentYellow),
+            const SizedBox(width: 14),
             Expanded(
-              child: Text('Zalogowano jako $_driverName', style: Theme.of(context).textTheme.titleMedium),
+              child: Text(
+                '${s.loggedInAs} $_driverName',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: AppColors.textWhite, fontSize: 18, fontWeight: FontWeight.w800),
+              ),
             ),
-            TextButton(onPressed: connecting ? null : _logout, child: const Text('Wyloguj')),
+            const SizedBox(width: 12),
+            OutlinedButton(
+              onPressed: connecting ? null : _logout,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.accentYellow,
+                side: const BorderSide(color: AppColors.borderGray),
+                shape: const RoundedRectangleBorder(),
+              ),
+              child: Text(s.logout),
+            ),
           ],
         ),
-        const SizedBox(height: 12),
-        FilledButton(
-          onPressed: connecting ? null : () => _connect(),
-          child: connecting
-              ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
-              : const Text('Połącz — wolny tryb'),
-        ),
         const SizedBox(height: 20),
-        Text('Albo dołącz do eventu:', style: Theme.of(context).textTheme.bodyMedium),
-        const SizedBox(height: 8),
+        _SolidActionButton(
+          onTap: connecting ? null : _openFreerideWizard,
+          icon: connecting ? null : Icons.chevron_right,
+          label: s.connectFreeride,
+          loading: connecting,
+        ),
+        const SizedBox(height: 24),
+        Text(s.orJoinEvent, style: const TextStyle(color: AppColors.textMuted, fontSize: 14, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 10),
         _buildEventsList(connecting),
       ],
     );
+  }
+
+  /// Freeride entry point now opens the session-config wizard (continent → track →
+  /// layout → session type/format → tyres) instead of connecting immediately — track/tyre
+  /// choices are local/informational for now (GT7 itself dictates the real car/track once
+  /// telemetry flows), but the session-type/format step feeds straight into [RaceConfig],
+  /// so completing the wizard also answers the fuel calculator's config prompt.
+  Future<void> _openFreerideWizard() async {
+    final result = await Navigator.of(context).push<SessionWizardResult>(
+      MaterialPageRoute(builder: (_) => SessionWizard(lang: _lang)),
+    );
+    if (result == null || !mounted) return;
+    setState(() {
+      _raceConfig = result.raceConfig;
+      _fuelCalculator.config = result.raceConfig;
+    });
+    _connect();
   }
 
   Widget _buildEventsList(bool connecting) {
     if (_loadingEvents) {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 8),
-        child: SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+        child: SizedBox(
+          height: 20,
+          width: 20,
+          child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.accentYellow),
+        ),
       );
     }
     if (_eventsError != null) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(_eventsError!, style: const TextStyle(color: Colors.orange)),
-          TextButton(onPressed: _loadJoinableEvents, child: const Text('Spróbuj ponownie')),
+          Text(_eventsError!, style: const TextStyle(color: AppColors.accentOrange)),
+          TextButton(
+            onPressed: _loadJoinableEvents,
+            style: TextButton.styleFrom(foregroundColor: AppColors.accentYellow),
+            child: Text(s.retry),
+          ),
         ],
       );
     }
     final events = _joinableEvents;
     if (events == null || events.isEmpty) {
-      return const Text('Brak dostępnych eventów.', style: TextStyle(color: Colors.grey));
+      return Text(s.noEvents, style: const TextStyle(color: AppColors.textMuted));
     }
     return Column(
       children: events
-          .map((e) => Card(
-                margin: const EdgeInsets.symmetric(vertical: 4),
-                child: ListTile(
-                  title: Text(e.name),
-                  subtitle: Text('${e.sim}${e.startAt != null ? ' • ${_fmtEventTime(e.startAt!)}' : ''}'),
+          .map((e) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _EventCard(
+                  name: e.name,
+                  subtitle: '${e.sim}${e.startAt != null ? ' • ${_fmtEventTime(e.startAt!)}' : ''}',
                   onTap: connecting ? null : () => _connect(eventId: e.id),
                 ),
               ))
@@ -509,46 +603,65 @@ class _HudScreenState extends State<HudScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(_session?.eventName ?? 'Sesja wolna (bez eventu)', style: Theme.of(context).textTheme.titleMedium),
-            TextButton(onPressed: _disconnect, child: const Text('Rozłącz')),
+            Expanded(
+              child: Text(
+                _session?.eventName ?? s.freerideSession,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: AppColors.textWhite, fontSize: 18, fontWeight: FontWeight.w800),
+              ),
+            ),
+            const SizedBox(width: 12),
+            OutlinedButton(
+              onPressed: _disconnect,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.accentYellow,
+                side: const BorderSide(color: AppColors.borderGray),
+                shape: const RoundedRectangleBorder(),
+              ),
+              child: Text(s.disconnect),
+            ),
           ],
         ),
-        Text('Kierowca: ${_session?.driverName ?? '—'}', style: const TextStyle(color: Colors.grey)),
-        const SizedBox(height: 8),
+        const SizedBox(height: 6),
+        Text('${s.driverLabel}: ${_session?.driverName ?? '—'}', style: const TextStyle(color: AppColors.textMuted, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 16),
         Row(
           children: [
-            _statusDot(_ps5Connected, 'PS5'),
-            const SizedBox(width: 16),
-            _statusDot(_lastIngestOk, 'Serwer'),
+            _statusDot(_ps5Connected, s.ps5),
+            const SizedBox(width: 32),
+            _statusDot(_lastIngestOk, s.server),
           ],
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 20),
+        Container(height: 2, color: AppColors.borderGray),
         Expanded(child: _buildWaitingForTelemetry()),
       ],
     );
   }
 
   Widget _buildWaitingForTelemetry() {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const CircularProgressIndicator(),
-          const SizedBox(height: 16),
-          Text(
-            _ps5Connected ? 'Sparowano — czekam na dane z GT7...' : 'Sparowano z serwerem — łączę z PS5 pod $_ps5IpForDisplay...',
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'Upewnij się, że GT7 jest uruchomione (nie tylko konsola) i telefon jest\n'
-            'w tej samej sieci Wi-Fi co PS5.',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.grey, fontSize: 13),
-          ),
-        ],
+    return SingleChildScrollView(
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(color: AppColors.accentYellow),
+            const SizedBox(height: 24),
+            Text(
+              s.waitingForGt7(_ps5Connected, _ps5IpForDisplay),
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: AppColors.textWhite, fontSize: 17, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              s.waitingHint,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: AppColors.textMuted, fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -666,14 +779,11 @@ class _HudScreenState extends State<HudScreen> {
 
   Widget _statusDot(bool ok, String label) {
     return Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Container(
-          width: 10,
-          height: 10,
-          decoration: BoxDecoration(color: ok ? Colors.green : Colors.red, shape: BoxShape.circle),
-        ),
-        const SizedBox(width: 6),
-        Text(label),
+        Container(width: 14, height: 14, color: ok ? AppColors.accentGreen : AppColors.accentRed),
+        const SizedBox(width: 10),
+        Text(label, style: const TextStyle(color: AppColors.textWhite, fontWeight: FontWeight.w800)),
       ],
     );
   }
@@ -683,5 +793,166 @@ class _HudScreenState extends State<HudScreen> {
     final m = ms ~/ 60000;
     final s = (ms % 60000) / 1000;
     return '$m:${s.toStringAsFixed(3).padLeft(6, '0')}';
+  }
+}
+
+/// Small caption above a value — the "label above underline, big bold value below" field
+/// style used throughout the setup screen (PS5 IP, server picker).
+class _LabeledField extends StatelessWidget {
+  final String label;
+  final Widget child;
+
+  const _LabeledField({required this.label, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(color: AppColors.textMuted, fontSize: 13, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 8),
+        child,
+        const SizedBox(height: 8),
+        Container(height: 2, color: AppColors.borderGray),
+      ],
+    );
+  }
+}
+
+/// Outlined yellow button — used for the demo-mode entry point, a lower-emphasis action
+/// than the solid Discord/connect buttons.
+class _OutlineActionButton extends StatelessWidget {
+  final VoidCallback? onTap;
+  final IconData icon;
+  final String label;
+
+  const _OutlineActionButton({required this.onTap, required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+          decoration: BoxDecoration(border: Border.all(color: AppColors.accentYellow, width: 2)),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, color: AppColors.accentYellow, size: 26),
+              const SizedBox(width: 14),
+              Text(label, style: const TextStyle(color: AppColors.accentYellow, fontSize: 18, fontWeight: FontWeight.w800)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Solid yellow full-width button — the primary action on each setup-screen state
+/// (Discord login, connect). Shows a spinner in place of the icon while [loading].
+class _SolidActionButton extends StatelessWidget {
+  final VoidCallback? onTap;
+  final IconData? icon;
+  final String label;
+  final bool loading;
+
+  const _SolidActionButton({required this.onTap, required this.icon, required this.label, this.loading = false});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.accentYellow,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 20),
+          child: Row(
+            children: [
+              if (loading)
+                const SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.black),
+                )
+              else if (icon != null)
+                Icon(icon, color: Colors.black, size: 24),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Text(label, style: const TextStyle(color: Colors.black, fontSize: 18, fontWeight: FontWeight.w800)),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// PL/EN language pill in the header — matches the reference design's language switch.
+class _LangPill extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _LangPill({required this.label, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected ? AppColors.accentYellow : Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(border: Border.all(color: AppColors.borderGray, width: 2)),
+          child: Text(
+            label,
+            style: TextStyle(color: selected ? Colors.black : AppColors.textWhite, fontSize: 13, fontWeight: FontWeight.w900),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Bordered joinable-event card in the event list.
+class _EventCard extends StatelessWidget {
+  final String name;
+  final String subtitle;
+  final VoidCallback? onTap;
+
+  const _EventCard({required this.name, required this.subtitle, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.bgCard,
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+          decoration: BoxDecoration(border: Border.all(color: AppColors.borderGray, width: 2)),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(name, style: const TextStyle(color: AppColors.textWhite, fontSize: 17, fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 6),
+                    Text(subtitle, style: const TextStyle(color: AppColors.textMuted, fontSize: 13, fontWeight: FontWeight.w700)),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right, color: AppColors.textMuted),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }

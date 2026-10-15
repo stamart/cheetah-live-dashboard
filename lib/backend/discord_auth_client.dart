@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:math';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
 import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
 import 'package:http/http.dart' as http;
@@ -34,8 +35,15 @@ class DiscordAuthException implements Exception {
 /// it couldn't complete the login with an intercepted code — it wouldn't have the verifier.
 class DiscordAuthClient {
   static const _clientId = '1416788884188172309';
-  static const _redirectUri = 'cheetahlive://auth';
   static const _callbackUrlScheme = 'cheetahlive';
+
+  // Web can't register a custom URI scheme, so flutter_web_auth_2 instead opens the Discord
+  // consent page in a new tab and waits for a same-origin page (web/auth.html) to postMessage
+  // the final callback URL back — see the package's web setup docs. The mobile app keeps using
+  // the cheetahlive:// scheme unchanged; this redirect_uri must ALSO be registered in Discord's
+  // Developer Portal (OAuth2 redirects) and allow-listed in the backend's
+  // app.livetiming.mobile-redirect-uri property, or Discord/the backend will reject it.
+  String get _redirectUri => kIsWeb ? '${Uri.base.origin}/auth.html' : 'cheetahlive://auth';
 
   Future<DiscordAppAuthResult> login(String backendBaseUrl) async {
     final verifier = _generateCodeVerifier();
